@@ -1,0 +1,5 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=4719
+
+GitHub repository: https://github.com/idanarye/vim-yankitute
+
+Yankitute combines the yank and substitute Vim commands into one. Like substitute, it searches for a pattern in the buffer and transforms all matches using a format string supplied by the user. But instead of replacing the text in the buffer with the transformed matches, it acts like yank and copies the transformed matches into a register.
