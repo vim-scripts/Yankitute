@@ -1,33 +1,77 @@
+function! yankitute#execute(cmd, start, end, reg) abort
+    let [l:reg, l:cmd] = a:reg =~? '[a-z0-9"]' ? [a:reg, a:cmd] : ['"', a:reg . a:cmd]
+    let l:sep = strlen(l:cmd) ? l:cmd[0] : '/'
+    let [l:pat, l:replace, l:flags, l:join; _] = split(l:cmd[1:], '\v([^\\](\\\\)*\\)@<!%d' . char2nr(l:sep), 1) + ['', '', '', '']
 
-function! yankitute#yankWithPattern(cmd,fromLine,toLine,register)
-	let l:separator=a:cmd[0]
-	let l:cmdSplitted=split(a:cmd[1:],'\v([^\\](\\\\)*\\)@<!%d'.char2nr(l:separator),1)
-	let l:pattern=l:cmdSplitted[0]
-	let l:substitution=1<len(l:cmdSplitted) ? l:cmdSplitted[1] : ''
+    if l:pat != ''
+        let @/ = l:pat
+    endif
 
-	let l:flags=2<len(l:cmdSplitted) ? l:cmdSplitted[2] : ''
-	let l:allFlag=0<=stridx(l:flags,'g')
+    if l:replace == ''
+        let l:replace = '&'
+    endif
+    let l:is_sub_replace = l:replace =~ '^\\='
+    if l:is_sub_replace
+        let l:fn = 's:eval(l:results, l:replace)'
+    else
+        let l:fn = 's:gather(l:results)'
+    endif
 
-	let l:lines=getline(a:fromLine,a:toLine)
-	let l:yankedStrings=[]
-	for l:line in l:lines
-		let l:matchFrom=0
-		let l:match=matchstr(l:line,l:pattern)
-		while(!empty(l:match) && (0==l:matchFrom || l:allFlag))
-			let l:matchFrom=stridx(l:line,l:match,l:matchFrom)+max([len(l:match),1])
-			if(!empty(l:substitution))
-				call add(l:yankedStrings,substitute(l:match,l:pattern,l:substitution,''))
-			else
-				call add(l:yankedStrings,l:match)
-			endif
-			if(l:allFlag)
-				let l:match=matchstr(l:line,l:pattern,l:matchFrom)
-			endif
-		endwhile
-	endfor
-	if(3<len(l:cmdSplitted))
-		call setreg(a:register,join(l:yankedStrings,l:cmdSplitted[3]))
-	else
-		call setreg(a:register,join(l:yankedStrings,"\n").(empty(l:yankedStrings) ? '' : "\n"))
-	endif
+    if l:flags =~ '\Cn'
+        return 'echoerr "the n flag is not allowed in Yankitute"'
+    elseif l:flags =~ '\Cc'
+        return 'echoerr "the c flag is not allowed in Yankitute"'
+    endif
+    let l:flags = substitute(l:flags, '\Cn', '', 'g')
+
+    let l:results = []
+    let v:errmsg = ''
+    let l:winview = winsaveview()
+    let l:winrestcmd = winrestcmd()
+    let l:winfixwidths = map(range(1, winnr('$')), 'getwinvar(v:val, "&winfixwidth")')
+    let l:winfixheights = map(range(1, winnr('$')), 'getwinvar(v:val, "&winfixwidth")')
+    windo setlocal winfixwidth
+    windo setlocal winfixheight
+    try
+        let l:bufnr = bufnr('')
+        new
+        try
+            setlocal buftype=nofile
+            setlocal bufhidden=wipe
+            call setline(1, getbufline(l:bufnr, 0, '$'))
+            silent execute 'keepjumps ' . a:start . ',' . a:end . 'substitute' . l:sep . l:pat . l:sep . '\=' . l:fn . l:sep . l:flags
+        finally
+            bdelete!
+        endtry
+    catch
+        let v:errmsg = substitute(v:exception, '.*:\zeE\d\+:\s', '', '')
+        return 'echoerr v:errmsg'
+    finally
+        for l:i in range(1, winnr('$'))
+            call setwinvar(l:i, '&winfixwidth', l:winfixheights[l:i - 1])
+            call setwinvar(l:i, '&winfixheight', l:winfixheights[l:i - 1])
+        endfor
+        execute l:winrestcmd
+        call winrestview(l:winview)
+    endtry
+
+    if !l:is_sub_replace
+        for l:i in range(len(l:results))
+            let l:results[l:i] = substitute(l:replace, '\v%(%(\\\\)*\\)@<!%(\\(\d)|(\&))', '\=get(l:results[l:i],submatch(1)=="&"?0:submatch(1))', 'g')
+        endfor
+    endif
+
+    let [l:join, type] = l:join == '' ? ["\n", 'l'] : [l:join, 'c']
+    call setreg(l:reg, join(l:results, l:join), type)
+    return ''
+endfunction
+
+function! s:gather(results) abort
+    call add(a:results, map(range(10), 'submatch(v:val)'))
+    return submatch(0)
+endfunction
+
+function! s:eval(results, replace) abort
+    call add(a:results, eval(a:replace[2:]))
+    return submatch(0)
 endfunction
